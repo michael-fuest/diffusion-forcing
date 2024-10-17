@@ -248,8 +248,9 @@ class DiffusionForcingBase(BasePytorchAlgo):
         else:
             conditions = [None for _ in range(n_frames)]
 
-        xs = self._normalize_x(xs)
-        xs = rearrange(xs, "b (t fs) c ... -> t b (fs c) ...", fs=self.frame_stack).contiguous()
+        #xs = self._normalize_x(xs)
+        #xs = rearrange(xs, "b (t fs) c ... -> t b (fs c) ...", fs=self.frame_stack).contiguous()
+        xs = rearrange(xs, "b (t fs) h w -> t b fs h w", fs=self.frame_stack) # adds a channel dimension if necessary
 
         return xs, conditions, masks
 

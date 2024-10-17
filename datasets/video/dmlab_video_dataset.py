@@ -7,6 +7,7 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 from internetarchive import download
 from .base_video_dataset import BaseVideoDataset
+from tokenizer.utils_vq import vq_get_encode_decode_fn
 
 
 class DmlabVideoDataset(BaseVideoDataset):
@@ -73,7 +74,20 @@ class DmlabVideoDataset(BaseVideoDataset):
             nonterminal[-pad_len:] = 0
 
         video = torch.from_numpy(video / 255.0).float().permute(0, 3, 1, 2).contiguous()
-        video = self.transform(video)
+        
+        if self.tokenize:
+            encode_fn, decode_fn = vq_get_encode_decode_fn(self.cfg.tokenizer, device="cuda")
+            video_tokens = encode_fn(video)  # Tokenized video data
+
+            return (
+                video_tokens[:: self.frame_skip],
+                actions[:: self.frame_skip],
+                nonterminal[:: self.frame_skip],
+            ) 
+            
+        else:
+            video = self.transform(video)
+
         return (
             video[:: self.frame_skip],
             actions[:: self.frame_skip],

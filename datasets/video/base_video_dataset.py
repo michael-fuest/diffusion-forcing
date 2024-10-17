@@ -25,6 +25,7 @@ class BaseVideoDataset(torch.utils.data.Dataset, ABC):
     def __init__(self, cfg: DictConfig, split: str = "training"):
         super().__init__()
         self.cfg = cfg
+        self.tokenize = cfg.tokenize
         self.split = split
         self.resolution = cfg.resolution
         self.external_cond_dim = cfg.external_cond_dim

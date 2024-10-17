@@ -151,3 +151,4 @@ checkpoints
 # Pycharm setting
 .idea/
 data/*
+pretrained_ckpt/*

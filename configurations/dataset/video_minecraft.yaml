@@ -10,3 +10,5 @@ external_cond_dim: 0
 context_length: 2
 frame_skip: 2
 validation_multiplier: 1
+tokenize: True
+tokenizer: sd_vq_f8

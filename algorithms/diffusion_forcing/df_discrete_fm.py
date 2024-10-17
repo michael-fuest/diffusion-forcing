@@ -1,0 +1,74 @@
+from typing import Optional
+from tqdm import tqdm
+from omegaconf import DictConfig
+import numpy as np
+import torch
+import torch.nn.functional as F
+from typing import Any
+from einops import rearrange
+
+from lightning.pytorch.utilities.types import STEP_OUTPUT
+
+from dynamic_discretefm_v2 import DiscreteFM, Ucoupling, CubicScheduler
+from algorithms.diffusion_forcing.df_base import DiffusionForcingBase
+
+class DiscreteFMVideo(DiffusionForcingBase):
+    def __init__(self, cfg: DictConfig):
+        super().__init__(cfg)
+        
+        self.flow_matching = DiscreteFM(
+            vocab_size=cfg.df_discrete_fm.vocab_size,
+            coupling=Ucoupling(mask_token_id=cfg.df_discrete_fm.mask_token_id),
+            kappa=CubicScheduler(),  # You can choose different schedulers
+            device=self.device,
+            input_tensor_type="bt",
+        )
+
+    def training_step(self, batch, batch_idx) -> STEP_OUTPUT:
+        xs, conditions, masks = self._preprocess_batch(batch)
+        noise_levels = self._generate_noise_levels(xs)
+
+        # Flow matching corruption and training
+        loss_dict = self.flow_matching.training_losses(
+            model=self.diffusion_model,
+            x=xs,
+            noise_levels=noise_levels,
+            model_kwargs={"conditions": conditions}
+        )
+        loss = loss_dict["loss"]
+        
+        # Log loss every 20 steps
+        if batch_idx % 20 == 0:
+            self.log("training/loss", loss)
+        
+        xs = self._unstack_and_unnormalize(xs)
+        xs_pred = self._unstack_and_unnormalize(loss_dict["x_corrupt"])
+
+        output_dict = {
+            "loss": loss,
+            "xs_pred": xs_pred,
+            "xs": xs,
+        }
+        return output_dict
+
+    def validation_step(self, batch, batch_idx, noise_levels, namespace="validation") -> STEP_OUTPUT:
+        xs, conditions, masks = self._preprocess_batch(batch)
+        noise_levels = self._generate_noise_levels(xs)
+        
+        # Flow matching validation step
+        loss_dict = self.flow_matching.training_losses(
+            model=self.diffusion_model,
+            x=xs,
+            noise_levels=noise_levels
+            model_kwargs={"conditions": conditions}
+        )
+        loss = loss_dict["loss"]
+        
+        xs = self._unstack_and_unnormalize(xs)
+        xs_pred = self._unstack_and_unnormalize(loss_dict["x_corrupt"])
+        self.validation_step_outputs.append((xs_pred.detach().cpu(), xs.detach().cpu()))
+
+        return loss
+
+    def test_step(self, *args: Any, **kwargs: Any) -> STEP_OUTPUT:
+        return self.validation_step(*args, **kwargs, namespace="test")
