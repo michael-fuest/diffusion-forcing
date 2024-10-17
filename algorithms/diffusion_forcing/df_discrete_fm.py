@@ -41,8 +41,8 @@ class DiscreteFMVideo(DiffusionForcingBase):
         if batch_idx % 20 == 0:
             self.log("training/loss", loss)
         
-        xs = self._unstack_and_unnormalize(xs)
-        xs_pred = self._unstack_and_unnormalize(loss_dict["x_corrupt"])
+        xs_unstacked = self._unstack(xs)
+        xs_pred_unstacked = self._unstack(loss_dict["x_corrupt"])
 
         output_dict = {
             "loss": loss,
@@ -55,20 +55,23 @@ class DiscreteFMVideo(DiffusionForcingBase):
         xs, conditions, masks = self._preprocess_batch(batch)
         noise_levels = self._generate_noise_levels(xs)
         
-        # Flow matching validation step
         loss_dict = self.flow_matching.training_losses(
             model=self.diffusion_model,
             x=xs,
-            noise_levels=noise_levels
+            noise_levels=noise_levels,
             model_kwargs={"conditions": conditions}
         )
         loss = loss_dict["loss"]
         
-        xs = self._unstack_and_unnormalize(xs)
-        xs_pred = self._unstack_and_unnormalize(loss_dict["x_corrupt"])
-        self.validation_step_outputs.append((xs_pred.detach().cpu(), xs.detach().cpu()))
+        xs_unstacked = self._unstack(xs)
+        xs_pred_unstacked = self._unstack(loss_dict["x_corrupt"])
+        self.validation_step_outputs.append((xs_pred_unstacked.detach().cpu(), xs_unstacked.detach().cpu()))
 
         return loss
 
-    def test_step(self, *args: Any, **kwargs: Any) -> STEP_OUTPUT:
-        return self.validation_step(*args, **kwargs, namespace="test")
+    def test_step(self, batch, batch_idx) -> STEP_OUTPUT:
+        return self.validation_step(batch, batch_idx, namespace="test")
+
+    def _unstack(self, xs):
+        return rearrange(xs, "t b (fs c) ... -> (t fs) b c ...", fs=self.frame_stack)
+
