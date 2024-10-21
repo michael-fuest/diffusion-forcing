@@ -93,6 +93,7 @@ def run_local(cfg: DictConfig):
     if checkpoint_path and is_rank_zero:
         print(f"Will load checkpoint from {checkpoint_path}")
 
+
     # launch experiment
     experiment = build_experiment(cfg, logger, checkpoint_path)
     for task in cfg.experiment.tasks:

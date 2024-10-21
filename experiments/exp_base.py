@@ -163,6 +163,7 @@ class BaseLightningExperiment(BaseExperiment):
         """
         if not self.algo:
             self.algo = self._build_algo()
+            print("algo built")
         if self.cfg.training.compile:
             self.algo = torch.compile(self.algo)
 
@@ -199,7 +200,6 @@ class BaseLightningExperiment(BaseExperiment):
 
         # if self.debug:
         #     self.logger.watch(self.algo, log="all")
-
         trainer.fit(
             self.algo,
             train_dataloaders=self._build_training_loader(),

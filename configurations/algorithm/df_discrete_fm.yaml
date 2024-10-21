@@ -3,24 +3,17 @@ defaults:
   - _self_
 
 n_frames: ${dataset.n_frames}
-input_size: ${dataset.tokenizer.latent_size}
 frame_skip: ${dataset.frame_skip}
 metadata: ${dataset.metadata}
+tokenizer: ${dataset.tokenizer}
+noise_level: "random_all"
+scheduling_matrix: "pyramid"
+input_tensor_type: ${dataset.tokenizer.input_tensor_type}
 
 # training hyperparameters
 weight_decay: 2e-3
 warmup_steps: 10000
 optimizer_beta: [0.9, 0.99]
-
-df_discrete_fm:
-  n_frames: ${dataset.n_frames}
-  input_size: ${dataset.tokenizer.latent_size}
-  second_modal_type: "label"  # or "mask"
-  vocab_size: 16385 #16384+1
-  token_len: 1024
-  mask_token_id: 16384
-  mask_token_reindex: 0
-  device: "cpu"  # or "cpu"
 
 metrics:
   - fvd

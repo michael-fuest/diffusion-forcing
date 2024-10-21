@@ -4,6 +4,7 @@ Verified to be the same as tf version by https://github.com/universome/fvd-compa
 """
 
 import io
+import os
 import re
 import requests
 import html
@@ -11,6 +12,7 @@ import hashlib
 import urllib
 import urllib.request
 from typing import Any, List, Tuple, Union, Dict
+from urllib.request import urlopen
 import scipy
 
 import torch
@@ -132,10 +134,20 @@ class FrechetVideoDistance(nn.Module):
         detector_url = (
             "https://www.dropbox.com/s/ge9e5ujwgetktms/i3d_torchscript.pt?dl=1"
         )
-        # Return raw features before the softmax layer.
+        os.makedirs("pretrained_ckpt/fvd", exist_ok=True)
+        cached_model_path = os.path.join("pretrained_ckpt/fvd", "i3d_torchscript.pt")
+        
+        # Check if the model already exists locally
+        if not os.path.exists(cached_model_path):
+            print(f"Downloading model from {detector_url}...")
+            self._download_model(detector_url, cached_model_path)
+            print(f"Model downloaded and cached at {cached_model_path}.")
+        else:
+            print(f"Loading model from cached file {cached_model_path}.")
+        
+        # Load the model from the local path
+        self.detector = torch.jit.load(cached_model_path).eval()
         self.detector_kwargs = dict(rescale=False, resize=True, return_features=True)
-        with open_url(detector_url, verbose=False) as f:
-            self.detector = torch.jit.load(f).eval()
 
     @torch.no_grad()
     def compute(self, videos_fake: torch.Tensor, videos_real: torch.Tensor):
@@ -156,3 +168,8 @@ class FrechetVideoDistance(nn.Module):
         feats_real = self.detector(videos_real, **self.detector_kwargs).cpu().numpy()
 
         return compute_fvd(feats_fake, feats_real)
+
+    def _download_model(self, url, save_path):
+        """Helper function to download the model from a URL."""
+        with urlopen(url) as response, open(save_path, "wb") as out_file:
+            out_file.write(response.read())

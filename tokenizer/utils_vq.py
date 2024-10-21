@@ -460,6 +460,7 @@ def vq_get_encoder_decoder(args, device):
 
             img = img.clamp(-1, 1) 
             img = ((img + 1) * 0.5 * 255.0)
+            return img
 
         return tokenizer_encode_fn, tokenizer_decode_fn
 

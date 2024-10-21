@@ -12,9 +12,9 @@ context_length: 2
 frame_skip: 2
 validation_multiplier: 1
 tokenize: True
-input_tensor_type: bt
 tokenizer:
   name: sd_vq_f8
+  second_modal_type: "label"  # or "mask"
   vocab_size: 16385 #16384+1
   token_len: 1024
   latent_size: 8
@@ -22,3 +22,5 @@ tokenizer:
   config_path: "./configurations/tokenizers/sd_vq_f8.yaml"
   mask_token_id: 16384
   mask_token_reindex: 0
+  input_tensor_type: bt
+  device: "cpu"  # or "cpu"

@@ -102,8 +102,11 @@ def get_validation_metrics_for_videos(
         )
 
     # reshape to (frame * batch, channel, height, width) for image losses
-    observation_hat = observation_hat.view(-1, channel, height, width)
-    observation_gt = observation_gt.view(-1, channel, height, width)
+    observation_hat = observation_hat.reshape(-1, channel, height, width)
+    observation_gt = observation_gt.reshape(-1, channel, height, width)
+
+    print(observation_gt.shape)
+    print(observation_hat.shape)
 
     output_dict["mse"] = mean_squared_error(observation_hat, observation_gt)
     output_dict["psnr"] = peak_signal_noise_ratio(observation_hat, observation_gt, data_range=2.0)
