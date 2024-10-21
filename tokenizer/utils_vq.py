@@ -6,7 +6,7 @@ from omegaconf import OmegaConf
 from einops import rearrange
 from tqdm import tqdm
 from diffusers import AutoencoderKL
-from wandb_utils import array2grid_pixel
+# from wandb_utils import array2grid_pixel
 import wandb
 
 
@@ -459,7 +459,9 @@ def vq_get_encoder_decoder(args, device):
                 img = rearrange(img, "(b t) c h w -> b t c h w", b=b, t=t)
 
             img = img.clamp(-1, 1) 
-            img = ((img + 1) * 0.5 * 255.0
+            img = ((img + 1) * 0.5 * 255.0)
+
+        return tokenizer_encode_fn, tokenizer_decode_fn
 
 
 

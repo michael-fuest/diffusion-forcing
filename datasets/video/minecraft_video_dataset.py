@@ -8,7 +8,7 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 from .base_video_dataset import BaseVideoDataset
-from tokenizer.utils_vq import vq_get_encode_decode_fn
+from tokenizer.utils_vq import vq_get_encoder_decoder
 
 
 
@@ -96,7 +96,7 @@ class MinecraftVideoDataset(BaseVideoDataset):
         video = torch.from_numpy(video / 255.0).float().permute(0, 3, 1, 2).contiguous()
 
         if self.tokenize:
-            encode_fn, decode_fn = kl_get_encode_decode_fn(self.cfg.tokenizer, device="cuda")
+            encode_fn, decode_fn = vq_get_encoder_decoder(self.cfg.tokenizer, device="cuda")
             video_tokens = encode_fn(video)  # Tokenized video data
 
             return (

@@ -1,7 +1,9 @@
 defaults:
   - df_base
+  - _self_
 
 n_frames: ${dataset.n_frames}
+input_size: ${dataset.tokenizer.latent_size}
 frame_skip: ${dataset.frame_skip}
 metadata: ${dataset.metadata}
 
@@ -11,47 +13,14 @@ warmup_steps: 10000
 optimizer_beta: [0.9, 0.99]
 
 df_discrete_fm:
+  n_frames: ${dataset.n_frames}
+  input_size: ${dataset.tokenizer.latent_size}
   second_modal_type: "label"  # or "mask"
+  vocab_size: 16385 #16384+1
   token_len: 1024
-  vocab_size: 10000
-  mask_token_id: 9999
-  num_classes: 100
-  mask_token_reindex: 10001
-  weight_y: 1.0
-  device: "cuda"  # or "cpu"
-  architecture:
-    network_size: 32
-    attn_heads: 4
-    attn_dim_head: 32
-    dim_mults: [1, 2, 4, 8]
-    resolution: ${dataset.resolution}
-    attn_resolutions: [16, 32, 64, 128]
-    use_init_temporal_attn: True
-    use_linear_attn: True
-    time_emb_type: rotary
-
-diffusion:
-  # training
-  beta_schedule: sigmoid
-  objective: pred_v
-  use_fused_snr: True
-  cum_snr_decay: 0.96
-  clip_noise: 6.
-  # sampling
-  sampling_timesteps: 100
-  ddim_sampling_eta: 0.0
-  stabilization_level: 15
-  # architecture
-  architecture:
-    network_size: 64
-    attn_heads: 4
-    attn_dim_head: 64
-    dim_mults: [1, 2, 4, 8]
-    resolution: ${dataset.resolution}
-    attn_resolutions: [16, 32, 64, 128]
-    use_init_temporal_attn: True
-    use_linear_attn: True
-    time_emb_type: rotary
+  mask_token_id: 16384
+  mask_token_reindex: 0
+  device: "cpu"  # or "cpu"
 
 metrics:
   - fvd

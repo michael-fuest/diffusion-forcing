@@ -1,5 +1,6 @@
 defaults:
   - base_video
+  - _self_
 
 save_dir: data/dmlab
 n_frames: 16 # TODO: increase later
@@ -11,4 +12,13 @@ context_length: 2
 frame_skip: 2
 validation_multiplier: 1
 tokenize: True
-tokenizer: sd_vq_f8
+input_tensor_type: bt
+tokenizer:
+  name: sd_vq_f8
+  vocab_size: 16385 #16384+1
+  token_len: 1024
+  latent_size: 8
+  ckpt_path: "./pretrained_ckpt/ldm/vq-f8.ckpt"
+  config_path: "./configurations/tokenizers/sd_vq_f8.yaml"
+  mask_token_id: 16384
+  mask_token_reindex: 0

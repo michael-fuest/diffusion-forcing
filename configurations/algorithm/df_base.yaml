@@ -1,5 +1,6 @@
 defaults:
   - base_pytorch_algo
+  - _self_
 
 # dataset-dependent configurations
 x_shape: ${dataset.observation_shape}

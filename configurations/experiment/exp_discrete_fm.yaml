@@ -1,12 +1,13 @@
 defaults:
   - base_pytorch
+  - _self_
 
 tasks: [training]
 
 training:
   lr: 8e-5
   precision: 16-mixed
-  batch_size: 8
+  batch_size: 2
   max_epochs: -1
   max_steps: 200005
   checkpointing:
@@ -17,12 +18,12 @@ training:
 validation:
   val_every_n_step: 5000
   val_every_n_epoch: null
-  batch_size: 8
+  batch_size: 2
   limit_batch: 1
 
 test:
   limit_batch: 1
-  batch_size: 8
+  batch_size: 2
 
 logging:
   metrics:

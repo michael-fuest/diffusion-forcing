@@ -69,7 +69,7 @@ class BaseVideoDataset(torch.utils.data.Dataset, ABC):
     @abstractmethod
     def download_dataset(self) -> Sequence[int]:
         """
-        Download dataset from the internet and build it in save_dir
+        Download dataset from the internet and build it in save_dir 
 
         Returns a list of video lengths
         """

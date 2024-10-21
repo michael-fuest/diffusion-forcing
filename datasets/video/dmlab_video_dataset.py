@@ -7,7 +7,7 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 from internetarchive import download
 from .base_video_dataset import BaseVideoDataset
-from tokenizer.utils_vq import vq_get_encode_decode_fn
+from tokenizer.utils_vq import vq_get_encoder_decoder
 
 
 class DmlabVideoDataset(BaseVideoDataset):
@@ -19,6 +19,9 @@ class DmlabVideoDataset(BaseVideoDataset):
         if split == "test":
             split = "validation"
         super().__init__(cfg, split)
+        self.data_paths = self.get_data_paths(split)
+        print(f"Number of data paths: {len(self.data_paths)}")
+
 
     def download_dataset(self) -> Sequence[int]:
 
@@ -48,9 +51,13 @@ class DmlabVideoDataset(BaseVideoDataset):
             part_file.rmdir()
 
     def get_data_paths(self, split):
-        data_dir = self.save_dir / split
+        if self.cfg.tokenize:
+            data_dir = self.save_dir / f"{split}_tokenized"
+        else:
+            data_dir = self.save_dir / split
         paths = sorted(list(data_dir.glob("**/*.npz")), key=lambda x: x.name)
         return paths
+
 
     def get_data_lengths(self, split):
         lengths = [300] * len(self.get_data_paths(split))
@@ -61,38 +68,46 @@ class DmlabVideoDataset(BaseVideoDataset):
         file_idx, frame_idx = self.split_idx(idx)
         data_path = self.data_paths[file_idx]
         data = np.load(data_path)
-        video = data["video"][frame_idx : frame_idx + self.n_frames]  # (t, h, w, 3)
-        actions = data["actions"][frame_idx : frame_idx + self.n_frames]  # (t, )
-        actions = np.eye(3)[actions]  # (t, 3)
+        if self.cfg.tokenize:
+            video_tokens = data["video_tokens"]  # (T, H', W')
+            actions = data["actions"]  # (T,)
 
-        pad_len = self.n_frames - len(video)
+            video_tokens = video_tokens[frame_idx : frame_idx + self.n_frames]
+            actions = actions[frame_idx : frame_idx + self.n_frames]
 
-        nonterminal = np.ones(self.n_frames)
-        if len(video) < self.n_frames:
-            video = np.pad(video, ((0, pad_len), (0, 0), (0, 0), (0, 0)))
-            actions = np.pad(actions, ((0, pad_len),))
-            nonterminal[-pad_len:] = 0
+            pad_len = self.n_frames - len(video_tokens)
+            nonterminal = np.ones(self.n_frames)
+            if pad_len > 0:
+                video_tokens = np.pad(video_tokens, ((0, pad_len), (0, 0), (0, 0)), mode='constant')
+                actions = np.pad(actions, ((0, pad_len),), mode='constant')
+                nonterminal[-pad_len:] = 0
 
-        video = torch.from_numpy(video / 255.0).float().permute(0, 3, 1, 2).contiguous()
-        
-        if self.tokenize:
-            encode_fn, decode_fn = vq_get_encode_decode_fn(self.cfg.tokenizer, device="cuda")
-            video_tokens = encode_fn(video)  # Tokenized video data
+            video_tokens = torch.from_numpy(video_tokens).long()
+            actions = torch.from_numpy(actions).long()
+            nonterminal = torch.from_numpy(nonterminal).float()
 
             return (
                 video_tokens[:: self.frame_skip],
                 actions[:: self.frame_skip],
                 nonterminal[:: self.frame_skip],
-            ) 
-            
+            )
         else:
+            video = data["video"][frame_idx : frame_idx + self.n_frames]  # (t, h, w, 3)
+            actions = data["actions"][frame_idx : frame_idx + self.n_frames]  # (t, )
+            actions = np.eye(3)[actions]  # (t, 3)
+            pad_len = self.n_frames - len(video)
+            nonterminal = np.ones(self.n_frames)
+            if pad_len > 0:
+                video = np.pad(video, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
+                actions = np.pad(actions, ((0, pad_len),), mode='constant')
+                nonterminal[-pad_len:] = 0
+            video = torch.from_numpy(video / 255.0).float().permute(0, 3, 1, 2).contiguous()
             video = self.transform(video)
-
-        return (
-            video[:: self.frame_skip],
-            actions[:: self.frame_skip],
-            nonterminal[:: self.frame_skip],
-        )
+            return (
+                video[:: self.frame_skip],
+                actions[:: self.frame_skip],
+                nonterminal[:: self.frame_skip],
+            )
 
 
 if __name__ == "__main__":

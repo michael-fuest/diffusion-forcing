@@ -42,7 +42,7 @@ class Diffusion(nn.Module):
         self.stabilization_level = cfg.stabilization_level
         self.is_causal = is_causal
 
-        self._build_model()
+        #self._build_model()
         self._build_buffer()
 
     def _build_model(self):
@@ -274,7 +274,9 @@ class Diffusion(nn.Module):
         external_cond: Optional[torch.Tensor],
         noise_levels: torch.Tensor,
     ):
-        noise = torch.randn_like(x)
+        x = x.unsqueeze(2) # has shape b
+        print(x.shape)
+        noise = torch.randn(size=x.shape, device=x.device, dtype=torch.float32)
         noise = torch.clamp(noise, -self.clip_noise, self.clip_noise)
 
         noised_x = self.q_sample(x_start=x, t=noise_levels, noise=noise)
@@ -292,12 +294,12 @@ class Diffusion(nn.Module):
         else:
             raise ValueError(f"unknown objective {self.objective}")
 
-        loss = F.mse_loss(pred, target.detach(), reduction="none")
-        loss_weight = self.compute_loss_weights(noise_levels)
-        loss_weight = loss_weight.view(*loss_weight.shape, *((1,) * (loss.ndim - 2)))
-        loss = loss * loss_weight
+        # loss = F.mse_loss(pred, target.detach(), reduction="none")
+        # loss_weight = self.compute_loss_weights(noise_levels)
+        # loss_weight = loss_weight.view(*loss_weight.shape, *((1,) * (loss.ndim - 2)))
+        # loss = loss * loss_weight
 
-        return x_pred, loss
+        return x_pred #, loss
 
     def sample_step(
         self,

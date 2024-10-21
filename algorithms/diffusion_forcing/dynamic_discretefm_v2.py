@@ -5,7 +5,7 @@ from torch.nn import functional as F
 import os
 from typing import Tuple, List
 from einops import rearrange
-from utils_common import print_rank_0
+# from utils_common import print_rank_0
 
 
 Prob = torch.Tensor
@@ -17,6 +17,7 @@ def pad_like_x(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 
 def indices_to_diracp(x: Img, vocab_size: int, type_data: str = "bt") -> Prob:
+    assert torch.all(x >= 0) and torch.all(x < vocab_size), f"Indices out of bounds: min {x.min().item()}, max {x.max().item()}, vocab_size {vocab_size}"
     if type_data == "bt":
         x = torch.nn.functional.one_hot(x, num_classes=vocab_size)
         return rearrange(x, "b t k -> b k t")
@@ -217,7 +218,7 @@ class DiscreteFM:
         coupling: Coupling,
         kappa: KappaScheduler,
         device: torch.device,
-        input_tensor_type: str = "bt",
+        input_tensor_type: str = "btw",
         smoothing_factor: float = 0.0,
         mask_ce=False,
     ) -> None:
@@ -228,7 +229,7 @@ class DiscreteFM:
         self.type_data = input_tensor_type
         self.smoothing_factor = smoothing_factor
         self.mask_ce = mask_ce
-        print_rank_0(f"smoothing_factor: {smoothing_factor}")
+        #print_rank_0(f"smoothing_factor: {smoothing_factor}")
 
     def forward_u(
         self, t: float | torch.Tensor, xt: Img, model: nn.Module, **model_kwargs
@@ -277,125 +278,99 @@ class DiscreteFM:
         t = t.view(-1, *([1] * (len(p0_shape) - 1)))  # automaticaly broadcast
         pt = (1 - kappa(t)) * p0 + kappa(t) * p1
 
+        assert torch.all(pt >= 0), "Negative probabilities in pt"
+        assert torch.allclose(pt.sum(dim=1), torch.ones_like(pt.sum(dim=1))), "Probabilities do not sum to 1"
+
         if self.smoothing_factor > 0.0:
             pt = pt + self.smoothing_factor * (1 - kappa(t)) * kappa(t)
 
         return sample_p(pt, type_data)
 
-    # def training_losses(self, model, x, noise_levels, model_kwargs) -> torch.Tensor:
+    def training_losses(self, model, x, noise_levels) -> torch.Tensor:
+        """
+        Compute the training loss using individual noise levels for each frame.
 
-    #     x0, x1_target = self.coupling.sample(x) # x0 is fully noised, x1 is actual data points
-    #     dirac_x0 = indices_to_diracp(x0.long(), self.vocab_size, self.type_data)
-    #     dirac_x1 = indices_to_diracp(x1_target.long(), self.vocab_size, self.type_data)
-    #     xt = self.corrupt_data(
-    #         dirac_x0, dirac_x1, t, self.kappa, self.type_data
-    #     )  # [B,T]
-    #     logits_x = model(xt, t, **model_kwargs)
-    #     target_mask = xt != x1_target  # following campbell  et al.
-    #     loss = F.cross_entropy(
-    #         logits_x,
-    #         x1_target.long(),
-    #         ignore_index=-1,
-    #         reduction="none",
-    #     )
-    #     if self.mask_ce:
-    #         loss = torch.sum(loss * target_mask) / (torch.sum(target_mask) + 1e-7)
-    #     else:
-    #         loss = loss.mean()
-    #     acc = ((logits_x.argmax(dim=1) == x1_target) * target_mask).sum() / (
-    #         torch.sum(target_mask) + 1e-7
-    #     )
-    #     ret_dict = {
-    #         "loss": loss,
-    #         "logits": logits_x.clone(),
-    #         "x_corrupt": xt.clone(),
-    #         "log/mask_ce": int(self.mask_ce),
-    #         "log/acc": acc.clone(),
-    #     }
-    #     return ret_dict
+        Args:
+            model (nn.Module): The model to train.
+            x (torch.Tensor): Input tensor of shape (t, b, fs, 32, 32).
+            noise_levels (torch.Tensor): Noise levels tensor of shape (t, b).
 
+        Returns:
+            dict: A dictionary containing loss, logits, corrupted inputs, and metrics.
+        """
+        n_frames, batch_size = x.shape[:2]
+        device = x.device
 
-def training_losses(self, model, x, noise_levels, model_kwargs) -> torch.Tensor:
-    """
-    Compute the training loss using individual noise levels for each frame.
+        normalized_noise = noise_levels.float() / 1000.0  # Scale to [0, 1]
 
-    Args:
-        model (nn.Module): The model to train.
-        x (torch.Tensor): Input tensor of shape (t, b, fs, 32, 32).
-        noise_levels (torch.Tensor): Noise levels tensor of shape (t, b).
-        model_kwargs (dict): Additional arguments for the model.
+        # Flatten the frames and batch dimensions for processing
+        x_flat = x.reshape(n_frames * batch_size, *x.shape[3:]) 
+        t_flat = normalized_noise.reshape(n_frames * batch_size)
 
-    Returns:
-        dict: A dictionary containing loss, logits, corrupted inputs, and metrics.
-    """
-    n_frames, batch_size = x.shape[:2] 
-    device = x.device
+        # Sample from the coupling to get x0 and x1_target
+        x0_flat, x1_target_flat = self.coupling.sample(x_flat)
 
-    normalized_noise = noise_levels.float() / 1000.0  # Scale to [0, 1]
+        # Convert indices to one-hot (Dirac) representations
+        dirac_x0_flat = indices_to_diracp(x0_flat.long(), self.vocab_size, self.type_data)  
+        dirac_x1_flat = indices_to_diracp(x1_target_flat.long(), self.vocab_size, self.type_data) 
 
+        # Corrupt data using the per-frame noise levels
+        xt_flat = self.corrupt_data(
+            dirac_x0_flat, dirac_x1_flat, t_flat, self.kappa, self.type_data
+        )  
 
-    # Flatten the frames and batch dimensions for processing
-    x_flat = x.view(n_frames * batch_size, *x.shape[2:])  # Shape: (n_frames * batch_size, fs, 32, 32)
-    t_flat = noise_levels.view(n_frames * batch_size)  # Shape: (n_frames * batch_size,)
+        # Reshape back to original frame and batch dimensions
+        xt = xt_flat.reshape(batch_size, n_frames, *xt_flat.shape[1:])  
+        x1_target = x1_target_flat.reshape(batch_size, n_frames, *x1_target_flat.shape[1:]) 
+        dirac_x1 = dirac_x1_flat.reshape(batch_size, n_frames, *dirac_x1_flat.shape[1:])
 
-    # Sample from the coupling to get x0 and x1_target
-    x0_flat, x1_target_flat = self.coupling.sample(x_flat)  # Shapes: (n_frames * batch_size, fs, 32, 32)
+        # Prepare the per-frame noise levels for the model
+        t = rearrange(normalized_noise, "f b -> b f")
 
-    # Convert indices to one-hot (Dirac) representations
-    dirac_x0_flat = indices_to_diracp(x0_flat.long(), self.vocab_size, self.type_data)  # Shape: (n_frames * batch_size, vocab_size, fs, 32, 32)
-    dirac_x1_flat = indices_to_diracp(x1_target_flat.long(), self.vocab_size, self.type_data)  # Same shape
+        # Pass the corrupted data and noise levels through the model
+        logits_x = model(
+            x=xt,  
+            t=t,    
+            use_fp16=False,
+            cond_drop_prob=0.0,  
+        )
 
-    # Corrupt data using the per-frame noise levels
-    xt_flat = self.corrupt_data(
-        dirac_x0_flat, dirac_x1_flat, t_flat, self.kappa, self.type_data
-    )  # Shape: (n_frames * batch_size, vocab_size, fs, 32, 32)
+        loss = F.cross_entropy(
+            logits_x, 
+            x1_target, 
+            ignore_index=16384,
+            reduction="none"
+        )  
 
-    # Reshape back to original frame and batch dimensions
-    xt = xt_flat.view(n_frames, batch_size, *xt_flat.shape[1:])  # Shape: (n_frames, batch_size, vocab_size, fs, 32, 32)
-    x1_target = x1_target_flat.view(n_frames, batch_size, *x1_target_flat.shape[1:])  # Same shape
+        # Compute the target mask where tokens were corrupted
+        target_mask = (xt != x1_target).float()  
+        target_mask_flat = target_mask.reshape(-1) 
 
-    # Prepare the per-frame noise levels for the model
-    t = noise_levels  # Shape: (n_frames, batch_size)
+        # Apply the mask to compute loss only on corrupted tokens
+        if self.mask_ce:
+            loss = (loss * target_mask_flat).sum() / (target_mask_flat.sum() + 1e-7)
+        else:
+            loss = loss.mean()
 
-    # Pass the corrupted data and noise levels through the model
-    logits_x = model(xt, t, **model_kwargs)  # Should handle per-frame noise levels; Shape: (n_frames, batch_size, vocab_size, fs, 32, 32)
+        # Compute accuracy only on corrupted tokens
+        preds = logits_x.argmax(dim=1)
+        preds_flat = preds.view(-1) 
+        x1_target_flat = x1_target_flat.view(-1)
 
-    # Compute the target mask where tokens were corrupted
-    target_mask = (xt != x1_target).float()  # Shape: (n_frames, batch_size, vocab_size, fs, 32, 32)
+        acc = ((preds_flat == x1_target_flat).float() * target_mask_flat).sum() / (target_mask_flat.sum() + 1e-7)
 
-    # Reshape tensors for loss computation
-    logits_x_flat = logits_x.view(-1, logits_x.shape[-1])  # Shape: (n_frames * batch_size * fs * 32 * 32, vocab_size)
-    x1_target_flat = x1_target.view(-1).long()  # Shape: (n_frames * batch_size * fs * 32 * 32,)
-    target_mask_flat = target_mask.view(-1)  # Shape: (n_frames * batch_size * fs * 32 * 32,)
+        print(f"Traning step acc: {acc}, Training step loss: {loss}")
 
-    # Compute the cross-entropy loss per token
-    loss = F.cross_entropy(
-        logits_x_flat, 
-        x1_target_flat, 
-        ignore_index=16384,  # Use -1 or your specific mask token ID if needed
-        reduction="none"
-    )  # Shape: (n_frames * batch_size * fs * 32 * 32,)
+        # Prepare return dictionary
+        ret_dict = {
+            "loss": loss,
+            "logits": logits_x.clone(),
+            "x_corrupt": xt.clone(),
+            "log/mask_ce": int(self.mask_ce),
+            "log/acc": acc.clone(),
+        }
 
-    # Apply the mask to compute loss only on corrupted tokens
-    if self.mask_ce:
-        loss = (loss * target_mask_flat).sum() / (target_mask_flat.sum() + 1e-7)
-    else:
-        loss = loss.mean()
-
-    # Compute accuracy only on corrupted tokens
-    preds = logits_x_flat.argmax(dim=-1)  # Shape: (n_frames * batch_size * fs * 32 * 32,)
-    acc = ((preds == x1_target_flat).float() * target_mask_flat).sum() / (target_mask_flat.sum() + 1e-7)
-
-    # Prepare return dictionary
-    ret_dict = {
-        "loss": loss,
-        "logits": logits_x.clone(),
-        "x_corrupt": xt.clone(),
-        "log/mask_ce": int(self.mask_ce),
-        "log/acc": acc.clone(),
-    }
-
-    return ret_dict
+        return ret_dict
 
 
 class DiscreteSampler:
