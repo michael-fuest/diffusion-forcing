@@ -20,7 +20,6 @@ class DmlabVideoDataset(BaseVideoDataset):
             split = "validation"
         super().__init__(cfg, split)
         self.data_paths = self.get_data_paths(split)
-        print(f"Number of data paths: {len(self.data_paths)}")
 
 
     def download_dataset(self) -> Sequence[int]:

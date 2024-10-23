@@ -163,7 +163,6 @@ class BaseLightningExperiment(BaseExperiment):
         """
         if not self.algo:
             self.algo = self._build_algo()
-            print("algo built")
         if self.cfg.training.compile:
             self.algo = torch.compile(self.algo)
 

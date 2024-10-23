@@ -234,12 +234,22 @@ class DiscreteFM:
     def forward_u(
         self, t: float | torch.Tensor, xt: Img, model: nn.Module, **model_kwargs
     ) -> Prob:  # Eq 24 and Eq 57
+
+        n_frames, batch_size, h, w = xt.shape
+        xt_flat = xt.reshape(-1, h, w)
+
         dirac_xt = indices_to_diracp(
-            xt, self.vocab_size, self.type_data
+            xt_flat, self.vocab_size, self.type_data
         )  # z is xt in Eq 24
-        p1t = torch.softmax(model(xt, t.flatten(), **model_kwargs), dim=1)
+
+        logits = model(xt, t, **model_kwargs)
+        p1t = torch.softmax(logits, dim=1)
+        p1t = rearrange(p1t, "b c f h w -> (b f) c h w")
+        
         kappa_coeff = self.kappa.derivative(t) / (1 - self.kappa(t))
-        return kappa_coeff * (p1t - dirac_xt)
+        kappa_coeff = kappa_coeff.reshape(-1, 1, 1, 1)
+        u = kappa_coeff * (p1t - dirac_xt)
+        return u, logits
 
     def backward_u(
         self, t: float | torch.Tensor, xt: Img
@@ -301,33 +311,24 @@ class DiscreteFM:
         n_frames, batch_size = x.shape[:2]
         device = x.device
 
-        normalized_noise = noise_levels.float() / 1000.0  # Scale to [0, 1]
-
-        # Flatten the frames and batch dimensions for processing
+        normalized_noise = noise_levels.float() / 1000.0
         x_flat = x.reshape(n_frames * batch_size, *x.shape[3:]) 
         t_flat = normalized_noise.reshape(n_frames * batch_size)
 
-        # Sample from the coupling to get x0 and x1_target
         x0_flat, x1_target_flat = self.coupling.sample(x_flat)
-
-        # Convert indices to one-hot (Dirac) representations
         dirac_x0_flat = indices_to_diracp(x0_flat.long(), self.vocab_size, self.type_data)  
         dirac_x1_flat = indices_to_diracp(x1_target_flat.long(), self.vocab_size, self.type_data) 
 
-        # Corrupt data using the per-frame noise levels
         xt_flat = self.corrupt_data(
             dirac_x0_flat, dirac_x1_flat, t_flat, self.kappa, self.type_data
         )  
 
-        # Reshape back to original frame and batch dimensions
         xt = xt_flat.reshape(batch_size, n_frames, *xt_flat.shape[1:])  
         x1_target = x1_target_flat.reshape(batch_size, n_frames, *x1_target_flat.shape[1:]) 
         dirac_x1 = dirac_x1_flat.reshape(batch_size, n_frames, *dirac_x1_flat.shape[1:])
 
-        # Prepare the per-frame noise levels for the model
         t = rearrange(normalized_noise, "f b -> b f")
 
-        # Pass the corrupted data and noise levels through the model
         logits_x = model(
             x=xt,  
             t=t,    
@@ -342,17 +343,14 @@ class DiscreteFM:
             reduction="none"
         )  
 
-        # Compute the target mask where tokens were corrupted
         target_mask = (xt != x1_target).float()  
         target_mask_flat = target_mask.reshape(-1) 
 
-        # Apply the mask to compute loss only on corrupted tokens
         if self.mask_ce:
             loss = (loss * target_mask_flat).sum() / (target_mask_flat.sum() + 1e-7)
         else:
             loss = loss.mean()
 
-        # Compute accuracy only on corrupted tokens
         preds = logits_x.argmax(dim=1)
         preds_flat = preds.view(-1) 
         x1_target_flat = x1_target_flat.view(-1)
@@ -361,7 +359,6 @@ class DiscreteFM:
 
         print(f"Traning step acc: {acc}, Training step loss: {loss}")
 
-        # Prepare return dictionary
         ret_dict = {
             "loss": loss,
             "logits": logits_x.clone(),
@@ -430,6 +427,53 @@ class DiscreteSampler:
             t += h
             list_xt.append(xt)
         return list_xt
+
+    def sample_step_with_noise_schedule(
+        self,
+        xt: torch.Tensor,
+        from_noise_levels: torch.Tensor,
+        to_noise_levels: torch.Tensor,
+        discretefm: DiscreteFM,
+        model: nn.Module,
+        n_steps: int,
+        model_kwargs: dict = {}
+    ):
+        default_h = 1 / n_steps
+        h = self.h(default_h, from_noise_levels, discretefm)
+        
+        frames, batch_size, H, W = xt.shape
+        xt = rearrange(xt, "f b ... -> b f ...")
+        xt_flat = xt.reshape(batch_size * frames, *xt.shape[2:]).long()
+        
+        u, logits = self.u(from_noise_levels, xt, discretefm, model, **model_kwargs)
+
+        dirac_xt = indices_to_diracp(
+            xt_flat,
+            discretefm.vocab_size,
+            discretefm.type_data
+        )
+
+        h = h.reshape(-1, 1, 1, 1)
+        
+        pt = dirac_xt + h * u
+        xt_new = sample_p(pt, discretefm.type_data)
+
+        dirac_xt_new = indices_to_diracp(
+            xt_new.long(),
+            discretefm.vocab_size,
+            discretefm.type_data
+        )
+
+        corrupted_xt = discretefm.corrupt_data(
+            p0=dirac_xt_new,           
+            p1=dirac_xt,               
+            t=to_noise_levels.flatten(),         
+            kappa=discretefm.kappa,
+            type_data=discretefm.type_data
+        )
+
+        corrupted_xt = corrupted_xt.reshape(frames, batch_size, *corrupted_xt.shape[1:])
+        return corrupted_xt, logits
 
 
 class SimpleSampler(DiscreteSampler):

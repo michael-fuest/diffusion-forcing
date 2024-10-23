@@ -136,6 +136,7 @@ class FrechetVideoDistance(nn.Module):
         )
         os.makedirs("pretrained_ckpt/fvd", exist_ok=True)
         cached_model_path = os.path.join("pretrained_ckpt/fvd", "i3d_torchscript.pt")
+        print("here")
         
         # Check if the model already exists locally
         if not os.path.exists(cached_model_path):

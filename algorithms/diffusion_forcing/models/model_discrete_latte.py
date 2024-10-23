@@ -461,12 +461,12 @@ class Latte(nn.Module):
         y: (N,) tensor of class labels
         """
         x = self.vocab_embedding(x) 
+        
         if use_fp16:
             x = x.to(dtype=torch.float16)
         bs = len(x)
 
-        # Rearrange x for Patch Embedding
-        x = rearrange(x, "b f h w c -> (b f) c h w")  
+        x = rearrange(x, "b f h w c -> (b f) c h w")
 
         x = self.x_embedder(x) + self.pos_embed  
 

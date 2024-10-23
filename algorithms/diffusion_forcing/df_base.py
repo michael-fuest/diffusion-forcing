@@ -99,21 +99,21 @@ class DiffusionForcingBase(BasePytorchAlgo):
 
         # context
         n_context_frames = self.context_frames // self.frame_stack
-        xs_pred = xs[:n_context_frames].clone()
-        curr_frame += n_context_frames
+        xs_pred = xs[:n_context_frames].clone() 
+        curr_frame += n_context_frames 
 
         pbar = tqdm(total=n_frames, initial=curr_frame, desc="Sampling")
-        while curr_frame < n_frames:
+        while curr_frame < n_frames: 
             if self.chunk_size > 0:
-                horizon = min(n_frames - curr_frame, self.chunk_size)
+                horizon = min(n_frames - curr_frame, self.chunk_size) 
             else:
                 horizon = n_frames - curr_frame
             assert horizon <= self.n_tokens, "horizon exceeds the number of tokens."
-            scheduling_matrix = self._generate_scheduling_matrix(horizon)
+            scheduling_matrix = self._generate_scheduling_matrix(horizon) 
 
             chunk = torch.randn((horizon, batch_size, *self.x_stacked_shape), device=self.device)
             chunk = torch.clamp(chunk, -self.clip_noise, self.clip_noise)
-            xs_pred = torch.cat([xs_pred, chunk], 0)
+            xs_pred = torch.cat([xs_pred, chunk], 0) 
 
             # sliding window: only input the last n_tokens frames
             start_frame = max(0, curr_frame + horizon - self.n_tokens)
